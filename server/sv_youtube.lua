@@ -106,22 +106,6 @@ local function pageToken(page)
     return page
 end
 
-local function copyResult(data)
-    if type(data) ~= 'table' then return data end
-    local out = {}
-    for k, v in pairs(data) do out[k] = v end
-    if type(data.items) == 'table' then
-        local items = {}
-        for i, item in ipairs(data.items) do
-            local copy = {}
-            for k, v in pairs(item) do copy[k] = v end
-            items[i] = copy
-        end
-        out.items = items
-    end
-    return out
-end
-
 local function remember(key, at, data)
     if memoryCount >= MEMORY_MAX then
         memory = {}
@@ -144,14 +128,14 @@ local function fromCache(key, stale)
     if not Db.ready then return nil end
     local fresh = os.time() - (tonumber(Config.Search.cacheMinutes) or 360) * 60
     local hit = memory[key]
-    if hit and (stale or hit.at > fresh) then return copyResult(hit.data) end
+    if hit and (stale or hit.at > fresh) then return hit.data end
 
     local row = Db.single('SELECT payload, UNIX_TIMESTAMP(cached_at) AS at FROM bupa_music_search_cache WHERE query_key = ?', { key })
     if row and (stale or (tonumber(row.at) or 0) > fresh) then
         local fine, data = pcall(json.decode, row.payload)
         if fine and type(data) == 'table' then
             remember(key, tonumber(row.at) or 0, data)
-            return copyResult(data)
+            return data
         end
     end
     return nil
@@ -159,7 +143,7 @@ end
 
 local function toCache(key, data)
     if not Db.ready then return end
-    remember(key, os.time(), copyResult(data))
+    remember(key, os.time(), data)
     Db.update('INSERT INTO bupa_music_search_cache (query_key, payload) VALUES (?, ?) ON DUPLICATE KEY UPDATE payload = VALUES(payload), cached_at = CURRENT_TIMESTAMP', { key, json.encode(data) })
 end
 
@@ -332,11 +316,7 @@ function YouTube.search(query, page)
     end
 
     local waiting = pending[key]
-    if waiting then
-        local shared = Citizen.Await(waiting)
-        if shared and shared.ok then return { ok = true, data = copyResult(shared.data) } end
-        return shared or { ok = false, error = 'search_failed' }
-    end
+    if waiting then return Citizen.Await(waiting) or { ok = false, error = 'search_failed' } end
 
     local p = promise.new()
     pending[key] = p
@@ -395,7 +375,6 @@ function YouTube.video(videoId)
     p:resolve(result)
     return result
 end
-
 
 CreateThread(function()
     while not Db.ready do Wait(1000) end

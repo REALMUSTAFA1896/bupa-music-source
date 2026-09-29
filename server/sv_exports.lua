@@ -1,7 +1,7 @@
 local ASK = {
-    search = function(query, page) return YouTube.search(query, page) end,
-    video = function(videoId) return YouTube.video(videoId) end,
-    restricted = function(videoId) return YouTube.restricted(videoId) end,
+    search = YouTube.search,
+    video = YouTube.video,
+    restricted = YouTube.restricted,
 }
 
 AddEventHandler('bupa-music-source:ask', function(kind, id, ...)
@@ -47,9 +47,6 @@ exports('pageSize', function()
     return Config.Search.pageSize
 end)
 
-CreateThread(function()
-    Wait(2000)
-    if not YouTube.ready() then
-        print('^3[bupa-music-source] no API key in config.lua — search is off until you add one^0')
-    end
-end)
+if not YouTube.ready() then
+    print('^3[bupa-music-source] no API key in config.lua — search is off until you add one^0')
+end
