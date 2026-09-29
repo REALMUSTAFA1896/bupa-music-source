@@ -19,8 +19,8 @@ Config.YouTube = {
 
     -- Region and language hints sent to YouTube. Affects which videos rank
     -- first, not what you can find.
-    region   = 'TR',
-    language = 'tr',
+    region   = 'EN',
+    language = 'en',
 }
 
 Config.Search = {
