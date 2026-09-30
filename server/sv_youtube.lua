@@ -14,6 +14,7 @@ local ratingCount = 0
 local pending = {}
 local quotaUntil = 0
 local usedDay, usedUnits = nil, 0
+local refusals = {}
 
 local function isoDuration(text)
     if type(text) ~= 'string' then return 0 end
@@ -31,17 +32,32 @@ end
 local function request(url)
     local res = Core.httpGet(url, REQUEST_TIMEOUT)
     if res.status == 403 or res.status == 429 then quotaUntil = os.time() + QUOTA_BACKOFF end
+    if res.status ~= 200 then
+        local fine, data = pcall(json.decode, res.body or '')
+        local reason = fine and type(data) == 'table' and type(data.error) == 'table' and data.error.message
+        reason = type(reason) == 'string' and reason:gsub('<[^>]+>', '') or ('HTTP ' .. tostring(res.status))
+        if not refusals[reason] then
+            refusals[reason] = true
+            print(('^1[bupa-music-source] YouTube refused the request: %s^0'):format(reason))
+        end
+    end
     return res
 end
 
+local SEPARATORS = { ' - ', ' – ', ' — ' }
+
 local function splitTitle(title, channel)
-    local artist, track = title:match('^(.-)%s*[-–—]%s*(.+)$')
-    if artist and track then
-        track = track:gsub('%s*[%(%[].-[%)%]]%s*', ' '):gsub('%s+$', '')
-        return Util.trim(artist), Util.trim(track)
+    local at, sep
+    for _, candidate in ipairs(SEPARATORS) do
+        local found = title:find(candidate, 1, true)
+        if found and (not at or found < at) then at, sep = found, candidate end
     end
-    local cleanChannel = (channel or ''):gsub('%s*[-–—]%s*Topic$', ''):gsub('VEVO$', '')
-    return Util.trim(cleanChannel), Util.trim(title:gsub('%s*[%(%[].-[%)%]]%s*', ' '))
+    if at then
+        local track = title:sub(at + #sep):gsub('%s*[%(%[].-[%)%]]%s*', ' ')
+        return Util.trim(title:sub(1, at - 1)), Util.trim(track)
+    end
+    local cleanChannel = (channel or ''):gsub('%s+%-%s+Topic$', ''):gsub('VEVO$', '')
+    return Util.trim(cleanChannel), Util.trim((title:gsub('%s*[%(%[].-[%)%]]%s*', ' ')))
 end
 
 local function quotaDay()
@@ -240,9 +256,10 @@ local function fetch(query, page, key)
         'maxResults=' .. tostring(math.floor(Util.clamp(tonumber(Config.Search.pageSize) or 12, 1, 50))),
         'q=' .. Util.urlEncode(query),
         'key=' .. Util.urlEncode(Config.YouTube.apiKey),
-        'regionCode=' .. Util.urlEncode(Config.YouTube.region or 'US'),
-        'relevanceLanguage=' .. Util.urlEncode(Config.YouTube.language or 'en'),
     }
+    local region, language = Config.YouTube.region, Config.YouTube.language
+    if type(region) == 'string' and region ~= '' then params[#params + 1] = 'regionCode=' .. Util.urlEncode(region:upper()) end
+    if type(language) == 'string' and language ~= '' then params[#params + 1] = 'relevanceLanguage=' .. Util.urlEncode(language:lower()) end
     if Config.Search.musicOnly then params[#params + 1] = 'videoCategoryId=10' end
     if page then params[#params + 1] = 'pageToken=' .. Util.urlEncode(page) end
 
